@@ -1,0 +1,14 @@
+volumes:
+  data:
+
+services:
+  postgres:
+    image: bitnami/postgresql:12.9.0
+    environment:
+      - POSTGRES_PASSWORD=postgrespw
+      - POSTGRES_DB=testdb
+      - POSTGRESQL_WAL_LEVEL=logical
+    ports:
+      - 5433:5432
+    volumes:
+      - data:/var/lib/postgresql

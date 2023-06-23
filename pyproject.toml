@@ -1,0 +1,11 @@
+[tool]
+[tool.poetry]
+name = "pypgcdc"
+version = "0.0.0"
+description = "CDC for Postgres"
+authors = ["Roman Kutlak"]
+
+[tool.poetry.dependencies]
+python = ">3.7"
+psycopg2-binary = "^2.8.5"
+pydantic = "^1.10.9"
