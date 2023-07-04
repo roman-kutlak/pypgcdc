@@ -62,9 +62,12 @@ class ColumnDefinition(pydantic.BaseModel):
 class TableSchema(pydantic.BaseModel):
     column_definitions: typing.List[ColumnDefinition]
     db: str
-    schema_name: str
+    namespace: str
     table: str
     relation_id: int
+
+    def get_key_columns(self) -> typing.List[str]:
+        return [col.name for col in self.column_definitions if col.part_of_pkey]
 
 
 class Transaction(pydantic.BaseModel):
@@ -81,6 +84,7 @@ class ChangeEvent(pydantic.BaseModel):
     table_schema: TableSchema
     before: typing.Optional[typing.Dict[str, typing.Any]]  # depends on the source table
     after: typing.Optional[typing.Dict[str, typing.Any]]
+    key: typing.Optional[typing.Dict[str, typing.Any]]
 
 
 def map_tuple_to_dict(tuple_data: decoders.TupleData, relation: TableSchema) -> typing.OrderedDict[str, typing.Any]:
@@ -152,17 +156,36 @@ class LogicalReplicationReader:
                 yield self.transaction_metadata
             # message processors below will throw an error if transaction_metadata doesn't exist
             elif message_type == "I":
-                yield self.process_insert(message=msg, transaction=self.transaction_metadata)
+                event = self.process_insert(message=msg, transaction=self.transaction_metadata)
+                self._add_key(event)
+                yield event
             elif message_type == "U":
-                yield self.process_update(message=msg, transaction=self.transaction_metadata)
+                event = self.process_update(message=msg, transaction=self.transaction_metadata)
+                self._add_key(event)
+                yield event
             elif message_type == "D":
-                yield self.process_delete(message=msg, transaction=self.transaction_metadata)
+                event = self.process_delete(message=msg, transaction=self.transaction_metadata)
+                self._add_key(event)
+                yield event
             elif message_type == "T":
                 yield from self.process_truncate(message=msg, transaction=self.transaction_metadata)
             elif message_type == "C":
                 self.transaction_metadata = None  # null out this value after commit
                 yield None
 
+    def _add_key(self, event: ChangeEvent) -> typing.Dict[str, typing.Any]:
+        """Add a key to the event; this is either the PK or the whole row"""
+        if event.before:
+            key = dict(**event.before)
+        else:
+            key_columns = event.table_schema.get_key_columns()
+            key = {col: event.after[col] for col in key_columns}
+        key['database'] = self.database
+        key['namespace'] = event.table_schema.namespace
+        key['table'] = event.table_schema.table
+        event.key = key
+        return key
+        
     def process_relation(self, message: ReplicationMessage) -> TableSchema:
         relation_msg: decoders.Relation = decoders.Relation(message.payload)
         relation_id = relation_msg.relation_id
@@ -206,7 +229,7 @@ class LogicalReplicationReader:
         )
         self.table_schemas[relation_id] = TableSchema(
             db=self.database,
-            schema_name=relation_msg.namespace,
+            namespace=relation_msg.namespace,
             table=relation_msg.relation_name,
             column_definitions=column_definitions,
             relation_id=relation_id,

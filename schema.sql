@@ -59,7 +59,6 @@ COPY public.customer (id, fname, lname, dt_updated, account_id) FROM stdin;
 1	Arthur  Dent	2023-03-12 11:26:29.718691+00	1
 2	Ford    Prefect	2023-03-12 11:26:40.815079+00	1
 3	Zaphod  Beeblebrox	2023-03-12 16:04:38.08398+00	1
-4	Trillian    	2023-03-12 16:58:18.772653+00	1
 \.
 
 

@@ -113,7 +113,7 @@ def validate_message_table_schema(message: pypgcdc.ChangeEvent, replica_identity
     Schema of table is in configure_test_db
     """
     assert message.table_schema.db == "test_db"
-    assert message.table_schema.schema_name == "public"
+    assert message.table_schema.namespace == "public"
     assert message.table_schema.table == "integration"
 
     assert message.table_schema.column_definitions[0].name == "id"

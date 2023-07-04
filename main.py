@@ -67,7 +67,7 @@ class CDCStream:
                 cur.execute(q3)
                 result = cur.fetchall()
                 for row in result:
-                    logger.info(f"Processing table {row.schemaname}.{row.tablename}")
+                    logger.info(f"Processing table {row[1]}.{row[2]} of publication {row[0]}")
 
     def process(self, msg: psycopg2.extras.ReplicationMessage):
         message_id = uuid.uuid4()
