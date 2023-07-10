@@ -1,11 +1,42 @@
 [tool]
-[tool.poetry]
-name = "pypgcdc"
-version = "0.0.0"
-description = "CDC for Postgres"
-authors = ["Roman Kutlak"]
 
 [tool.poetry.dependencies]
-python = ">3.7"
-psycopg2-binary = "^2.8.5"
-pydantic = "^1.10.9"
+python = ">=3.7"
+psycopg2-binary = "^2.8.0"
+pydantic = "^1.10.0"
+
+[build-system]
+requires = ["setuptools>=57.5.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pypgcdc"
+version = "0.0.0rc2"
+description = "Change Data Capture (CDC) tool for Postgres"
+readme = "README.md"
+authors = [{ name = "Roman Kutlak", email = "roman@kutlak.net" }]
+license = { file = "LICENSE" }
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Topic :: Database",
+    "Topic :: System",
+    "Topic :: System :: Archiving",
+    "Topic :: System :: Archiving :: Mirroring",
+]
+keywords = ["postgres", "CDC", "change", "data", "capture", "logical", "replication", "outbox"]
+dependencies = [
+    "psycopg2-binary>=2.8.0",
+    "pydantic>=1.10.0",
+]
+requires-python = ">=3.7"
+
+[project.optional-dependencies]
+dev = ["black", "pip-tools", "pytest", "build", "twine"]
+
+[project.urls]
+Homepage = "https://github.com/roman-kutlak/pypgcdc"
+
+[project.scripts]
+pypgcdc = "pypgcdc.__main__:main"

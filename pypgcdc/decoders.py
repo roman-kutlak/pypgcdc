@@ -2,6 +2,7 @@
 MIT License
 
 Copyright (c) [2020] [Daniel Geals]
+Copyright (c) [2023] [Roman Kutlak]
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -56,9 +57,11 @@ class ColumnData:
     col_data: Optional[str] = None
 
     def __repr__(self) -> str:
-        return (f"[col_data_category='{self.col_data_category}', "
-                f"col_data_length={self.col_data_length}, "
-                f"col_data='{self.col_data}']")
+        return (
+            f"[col_data_category='{self.col_data_category}', "
+            f"col_data_length={self.col_data_length}, "
+            f"col_data='{self.col_data}']"
+        )
 
 
 @dataclass(frozen=True)
@@ -224,8 +227,6 @@ class Origin:
     Note that there can be multiple Origin messages inside a single transaction.
     This seems to be what origin means: https://www.postgresql.org/docs/12/replication-origins.html
     """
-
-    pass
 
 
 class Relation(PgoutputMessage):
