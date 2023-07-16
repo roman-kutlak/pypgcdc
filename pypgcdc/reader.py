@@ -33,8 +33,9 @@ import psycopg2.extras
 import pydantic
 
 import pypgcdc.decoders as decoders
+from pypgcdc.models import OperationType
 from pypgcdc.models import TableSchema, Transaction, ChangeEvent, SlotInitInfo, ReplicationMessage, ColumnDefinition
-from pypgcdc.stores import MetadataStore, StateStore, ChangeStore
+from pypgcdc.stores import MetadataStore, DataStore
 from pypgcdc.utils import SourceDBHandler
 
 logger = logging.getLogger(__name__)
@@ -76,8 +77,7 @@ class LogicalReplicationReader:
         publication_name: str,
         slot_name: str,
         dsn: str,
-        change_store: ChangeStore,
-        state_store: StateStore,
+        data_store: DataStore,
         lsn: str = 0,
         metadata_store: MetadataStore = None,
     ) -> None:
@@ -85,8 +85,7 @@ class LogicalReplicationReader:
         self.publication_name = publication_name
         self.slot_name = slot_name
         self.lsn = lsn
-        self.change_store = change_store
-        self.state_store = state_store
+        self.data_store = data_store
         self.metadata_store = metadata_store
         self.source_db_handler = SourceDBHandler(dsn=self.dsn)
         self.database = self.source_db_handler.conn.get_dsn_parameters()["dbname"]
@@ -95,30 +94,30 @@ class LogicalReplicationReader:
         self.transaction_metadata = None
 
     def transform_raw(self, msg: ReplicationMessage) -> typing.Union[ChangeEvent, Transaction, TableSchema]:
-        message_type = (msg.payload[:1]).decode("utf-8")
-        if message_type == "R":
+        message_type = OperationType((msg.payload[:1]).decode("utf-8"))
+        if message_type == OperationType.RELATION:
             return self.process_relation(message=msg)
-        elif message_type == "B":
+        elif message_type == OperationType.BEGIN:
             self.transaction_metadata = self.process_begin(message=msg)
             return self.transaction_metadata
         # message processors below will throw an error if transaction_metadata doesn't exist
-        elif message_type == "I":
+        elif message_type == OperationType.INSERT:
             event = self.process_insert(message=msg, transaction=self.transaction_metadata)
             self._add_key(event)
             return event
-        elif message_type == "U":
+        elif message_type == OperationType.UPDATE:
             event = self.process_update(message=msg, transaction=self.transaction_metadata)
             self._add_key(event)
             return event
-        elif message_type == "D":
+        elif message_type == OperationType.DELETE:
             event = self.process_delete(message=msg, transaction=self.transaction_metadata)
             self._add_key(event)
             return event
-        elif message_type == "T":
+        elif message_type == OperationType.TRUNCATE:
             return self.process_truncate(message=msg, transaction=self.transaction_metadata)
-        elif message_type == "C":
+        elif message_type == OperationType.COMMIT:
             txn = self.transaction_metadata.copy()
-            txn.op = "C"
+            txn.op = OperationType.COMMIT
             self.transaction_metadata = None  # null out this value after commit
             return txn
 
@@ -146,9 +145,7 @@ class LogicalReplicationReader:
         for column in relation_msg.columns:
             pg_type = self.metadata_store.column_type(self.database, column.type_id)
             if not pg_type:
-                pg_type = self.source_db_handler.fetch_column_type(
-                    type_id=column.type_id, atttypmod=column.atttypmod
-                )
+                pg_type = self.source_db_handler.fetch_column_type(type_id=column.type_id, atttypmod=column.atttypmod)
                 self.metadata_store.add_column_type(self.database, column.type_id, pg_type)
             # pre-compute schema of the table for attaching to messages
             is_optional = self.source_db_handler.fetch_if_column_is_optional(
@@ -179,11 +176,9 @@ class LogicalReplicationReader:
             for c in column_definitions
             if c.part_of_pkey is True
         }
-        key_schema = pydantic.create_model(
-            f"KeyDynamicSchemaModel_{relation_id}", **key_only_schema_mapping_args
-        )
+        key_schema = pydantic.create_model(f"KeyDynamicSchemaModel_{relation_id}", **key_only_schema_mapping_args)
         self.metadata_store.add_key_model(self.database, relation_id, key_schema)
-        
+
         table_schema = TableSchema(
             db=self.database,
             namespace=relation_msg.namespace,
@@ -196,7 +191,7 @@ class LogicalReplicationReader:
 
     def process_begin(self, message: ReplicationMessage) -> Transaction:
         begin_msg: decoders.Begin = decoders.Begin(message.payload)
-        return Transaction(op='B', tx_id=begin_msg.tx_xid, begin_lsn=begin_msg.lsn, commit_ts=begin_msg.commit_ts)
+        return Transaction(op="B", tx_id=begin_msg.tx_xid, begin_lsn=begin_msg.lsn, commit_ts=begin_msg.commit_ts)
 
     def process_insert(self, message: ReplicationMessage, transaction: Transaction) -> ChangeEvent:
         decoded_msg: decoders.Insert = decoders.Insert(message.payload)
@@ -268,8 +263,9 @@ class LogicalReplicationReader:
             message_id=message.message_id,
             lsn=message.data_start,
             transaction=transaction,
-            table_schemata=[self.metadata_store.table_schema(self.database, relation_id)
-                            for relation_id in decoded_msg.relation_ids],
+            table_schemata=[
+                self.metadata_store.table_schema(self.database, relation_id) for relation_id in decoded_msg.relation_ids
+            ],
             before=None,
             after=None,
         )
@@ -294,13 +290,13 @@ class LogicalReplicationReader:
             change_event = self.transform_raw(message)
 
             if isinstance(change_event, TableSchema):
-                self.change_store.handle_relation(change_event, message)
+                self.data_store.handle_relation(change_event, message)
             elif change_event.op == "B":
-                self.state_store.handle_begin(change_event, msg)
+                self.data_store.handle_begin(change_event, msg)
             elif change_event.op == "C":
-                self.state_store.handle_commit(change_event, msg)
+                self.data_store.handle_commit(change_event, msg)
             else:
-                self.change_store.handle_change_event(change_event, message)
+                self.data_store.handle_change_event(change_event, message)
         except Exception as err:
             raise StopIteration from err
 
@@ -327,7 +323,7 @@ class LogicalReplicationReader:
                 snapshot=res[2],
                 plugin=res[3],
             )
-            self.change_store.handle_slot_created(info)
+            self.data_store.handle_slot_created(info)
             self.cursor.start_replication(
                 slot_name=self.slot_name, options=replication_options, start_lsn=self.lsn, decode=False
             )
@@ -338,4 +334,3 @@ class LogicalReplicationReader:
             self.cursor.close()
         if self.connection:
             self.connection.close()
-

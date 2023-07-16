@@ -334,13 +334,19 @@ class Update(PgoutputMessage):
     """
     Byte1('U')      Identifies the message as an update message.
     Int32           ID of the relation corresponding to the ID in the relation message.
-    Byte1('K')      Identifies the following TupleData submessage as a key. This field is optional and is only present if the update changed data in any of the column(s) that are part of the REPLICA IDENTITY index.
-    Byte1('O')      Identifies the following TupleData submessage as an old tuple. This field is optional and is only present if table in which the update happened has REPLICA IDENTITY set to FULL.
-    TupleData       TupleData message part representing the contents of the old tuple or primary key. Only present if the previous 'O' or 'K' part is present.
+    Byte1('K')      Identifies the following TupleData submessage as a key.
+                        This field is optional and is only present if the update changed data
+                         in any of the column(s) that are part of the REPLICA IDENTITY index.
+    Byte1('O')      Identifies the following TupleData submessage as an old tuple.
+                        This field is optional and is only present if table in which the update
+                         happened has REPLICA IDENTITY set to FULL.
+    TupleData       TupleData message part representing the contents of the old tuple or primary key.
+                        Only present if the previous 'O' or 'K' part is present.
     Byte1('N')      Identifies the following TupleData message as a new tuple.
     TupleData       TupleData message part representing the contents of a new tuple.
 
-    The Update message may contain either a 'K' message part or an 'O' message part or neither of them, but never both of them.
+    The Update message may contain either a 'K' message part or an 'O' message part
+    or neither of them, but never both of them.
     """
 
     byte1: str
@@ -375,7 +381,8 @@ class Update(PgoutputMessage):
     def __repr__(self) -> str:
         return (
             f"UPDATE \n\tbyte1: '{self.byte1}', \n\trelation_id: {self.relation_id}"
-            f"\n\toptional_tuple_identifier: '{self.optional_tuple_identifier}', \n\toptional_old_tuple_data: {self.old_tuple}"
+            f"\n\toptional_tuple_identifier: '{self.optional_tuple_identifier}', "
+            f"\n\toptional_old_tuple_data: {self.old_tuple}"
             f"\n\tnew_tuple_byte: '{self.new_tuple_byte}', \n\tnew_tuple: {self.new_tuple}"
         )
 
@@ -384,9 +391,14 @@ class Delete(PgoutputMessage):
     """
     Byte1('D')      Identifies the message as a delete message.
     Int32           ID of the relation corresponding to the ID in the relation message.
-    Byte1('K')      Identifies the following TupleData submessage as a key. This field is present if the table in which the delete has happened uses an index as REPLICA IDENTITY.
-    Byte1('O')      Identifies the following TupleData message as a old tuple. This field is present if the table in which the delete has happened has REPLICA IDENTITY set to FULL.
-    TupleData       TupleData message part representing the contents of the old tuple or primary key, depending on the previous field.
+    Byte1('K')      Identifies the following TupleData submessage as a key.
+                        This field is present if the table in which the delete
+                         has happened uses an index as REPLICA IDENTITY.
+    Byte1('O')      Identifies the following TupleData message as a old tuple.
+                        This field is present if the table in which the delete has happened
+                         has REPLICA IDENTITY set to FULL.
+    TupleData       TupleData message part representing the contents of the old tuple or primary key,
+                        depending on the previous field.
 
     The Delete message may contain either a 'K' message part or an 'O' message part, but never both of them.
     """
@@ -418,7 +430,8 @@ class Truncate(PgoutputMessage):
     Byte1('T')      Identifies the message as a truncate message.
     Int32           Number of relations
     Int8            Option bits for TRUNCATE: 1 for CASCADE, 2 for RESTART IDENTITY
-    Int32           ID of the relation corresponding to the ID in the relation message. This field is repeated for each relation.
+    Int32           ID of the relation corresponding to the ID in the relation message.
+                        This field is repeated for each relation.
     """
 
     byte1: str

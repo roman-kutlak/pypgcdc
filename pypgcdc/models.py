@@ -1,5 +1,6 @@
 import typing
 from datetime import datetime
+from enum import Enum
 
 import pydantic
 
@@ -11,6 +12,17 @@ class ReplicationMessage(pydantic.BaseModel):
     send_time: datetime
     data_size: int
     wal_end: int
+
+
+class OperationType(Enum):
+    INSERT = "I"
+    UPDATE = "U"
+    DELETE = "D"
+    TRUNCATE = "T"
+    BEGIN = "B"
+    COMMIT = "C"
+    ORIGIN = "O"
+    RELATION = "R"
 
 
 class ColumnDefinition(pydantic.BaseModel):
@@ -49,7 +61,7 @@ class SlotInitInfo(pydantic.BaseModel):
 
 
 class ChangeEvent(pydantic.BaseModel):
-    op: str  # (ENUM of I, U, D, T)
+    op: OperationType
     message_id: pydantic.UUID4
     lsn: int
     transaction: Transaction  # replication/source metadata
@@ -58,3 +70,6 @@ class ChangeEvent(pydantic.BaseModel):
     before: typing.Optional[typing.Dict[str, typing.Any]]  # depends on the source table
     after: typing.Optional[typing.Dict[str, typing.Any]]
     key: typing.Optional[typing.Dict[str, typing.Any]]
+
+    class Config:
+        use_enum_values = True
