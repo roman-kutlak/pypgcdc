@@ -1,18 +1,7 @@
-[tool]
-
-[tool.poetry.dependencies]
-python = ">=3.7"
-psycopg2-binary = "^2.8.0"
-pydantic = "^1.10.0"
-
-[build-system]
-requires = ["setuptools>=57.5.0", "wheel"]
-build-backend = "setuptools.build_meta"
-
 [project]
 name = "pypgcdc"
 version = "0.0.0rc3"
-description = "Change Data Capture (CDC) tool for Postgres"
+description = "Change Data Capture (CDC) library for Postgres"
 readme = "README.md"
 authors = [{ name = "Roman Kutlak", email = "roman@kutlak.net" }]
 license = { file = "LICENSE" }
@@ -40,3 +29,54 @@ Homepage = "https://github.com/roman-kutlak/pypgcdc"
 
 [project.scripts]
 pypgcdc = "pypgcdc.__main__:main"
+
+[build-system]
+requires = ["setuptools>=57.5.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+
+[tool]
+
+[tool.poetry]
+name = "pypgcdc"
+version = "0.0.0rc3"
+description = "Change Data Capture (CDC) library for Postgres"
+license = "MIT"
+authors = [
+    "Daniel Geals",
+    "Roman Kutlak <roman@kutlak.net>",
+]
+
+[tool.poetry.dependencies]
+python = ">=3.8"
+psycopg2-binary = "^2.8.0"
+pydantic = "^1.10.0"
+
+[tool.poetry.group.test.dependencies]
+pytest = "^6.0.0"
+pytest-mock = "*"
+
+
+[tool.poetry.group.dev.dependencies]
+coverage = "^7.3.1"
+
+[tool.black]
+line-length = 120
+
+[tool.isort]
+profile = "black"
+multi_line_output = 3
+line_length = 88
+include_trailing_comma = true
+
+[tool.coverage.report]
+show_missing = true
+exclude_lines = [
+  "def __repr__"
+]
+
+[tool.coverage.run]
+branch = false
+omit=[
+  "tests/*"
+]

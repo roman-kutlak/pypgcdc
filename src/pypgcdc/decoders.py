@@ -163,7 +163,7 @@ class Begin(PgoutputMessage):
     https://pgpedia.info/x/xlogrecptr.html
     https://www.postgresql.org/docs/14/datatype-pg-lsn.html
 
-    byte1 Byte1('B') Identifies the message as a begin message.
+    byte1 Byte1('B') Identifies the message as a "begin" message.
     lsn Int64 The final LSN of the transaction.
     commit_tx_ts Int64 Commit timestamp of the transaction.
         The value is in number of microseconds since PostgreSQL epoch (2000-01-01).
@@ -195,7 +195,7 @@ class Commit(PgoutputMessage):
     flags: Int8 Flags; currently unused (must be 0).
     lsn_commit: Int64 The LSN of the commit.
     lsn: Int64 The end LSN of the transaction.
-    Int64 Commit timestamp of the transaction. The value is in number of microseconds since PostgreSQL epoch (2000-01-01).
+    Int64 Commit timestamp of the transaction. The value is in number of microseconds since PG epoch (2000-01-01).
     """
 
     byte1: str
@@ -241,7 +241,7 @@ class Relation(PgoutputMessage):
         # background: https://www.postgresql.org/docs/10/sql-altertable.html#SQL-CREATETABLE-REPLICA-IDENTITY
     Int16 Number of columns.
     Next, the following message part appears for each column (except generated columns):
-        Int8 Flags for the column. Currently can be either 0 for no flags or 1 which marks the column as part of the key.
+        Int8 Flags for the column. Can be either 0 for no flags or 1 which marks the column as part of the key.
         String Name of the column.
         Int32 ID of the column's data type.
         Int32 Type modifier of the column (atttypmod).

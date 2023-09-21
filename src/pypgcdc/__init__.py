@@ -38,12 +38,19 @@ from pypgcdc.decoders import (
     TupleData,
     Update,
 )
-from pypgcdc.utils import QueryError, SourceDBHandler
-from pypgcdc.models import Transaction, SlotInitInfo, ReplicationMessage, TableSchema, ChangeEvent
-from pypgcdc.stores import MetadataStore, DataStore
+from pypgcdc.models import (
+    ChangeEvent,
+    ReplicationMessage,
+    SlotInitInfo,
+    TableSchema,
+    Transaction,
+)
 from pypgcdc.reader import LogicalReplicationReader
+from pypgcdc.stores import DataStore, MetadataStore
+from pypgcdc.utils import QueryError, SourceDBHandler
 
 logging.getLogger("pypgcdc").addHandler(logging.NullHandler())
+
 
 __all__ = [
     "PgoutputMessage",

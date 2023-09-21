@@ -21,42 +21,72 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
+import json
 import logging
-from typing import Dict, Tuple, Type
+from typing import Callable, Dict, Optional, Tuple, Type
 
 import psycopg2
 import psycopg2.extras
 import pydantic
 
-from pypgcdc.models import Transaction, SlotInitInfo, ChangeEvent, ReplicationMessage, TableSchema
+from pypgcdc.models import (
+    ChangeEvent,
+    ReplicationMessage,
+    SlotInitInfo,
+    TableSchema,
+    Transaction,
+)
 
 logger = logging.getLogger(__name__)
 
 
 class DataStore:
-    """Store state in memory"""
+    """DataStore is an example of a data consumer that is meant to handle the initial sync as well as any changes.
 
-    def __init__(self) -> None:
+    The main purpose of the DataStore is to store the captured changes in the right place.
+    This could be a database, a file, a message queue, etc.
+
+    The default implementation just prints the changes to the log.
+
+    You can override this class, or you can write your own data store class from scratch.
+    If you do, don't forget to implement all public methods listed in this class.
+
+    """
+
+    def __init__(self, quiet=False) -> None:
         self.txn_id = None
         self.txn_ts = None
         self.txn_lsn = None
+        self.commit_callback: Optional[Callable] = None
+        self.quiet = quiet
 
-    def handle_begin(self, txn: Transaction, msg: psycopg2.extras.ReplicationMessage) -> None:
+    @property
+    def commit_callback(self) -> Optional[Callable]:
+        return self._commit_callback
+
+    @commit_callback.setter
+    def commit_callback(self, callback: Optional[Callable]) -> None:
+        self._commit_callback = callback
+
+    def handle_begin(self, txn: Transaction, message: ReplicationMessage) -> None:
         self.txn_id = txn.tx_id
         self.txn_ts = txn.commit_ts
         self.txn_lsn = txn.begin_lsn
-        msg.cursor.send_feedback(write_lsn=txn.begin_lsn)
-        print("*" * 120)
+        if not self.quiet:
+            logger.info("*" * 120)
+            logger.info(f"{message.message_id}:{txn.json(indent=2)}")
 
-    def handle_commit(self, txn: Transaction, msg: psycopg2.extras.ReplicationMessage) -> None:
+    def handle_commit(self, txn: Transaction, message: ReplicationMessage) -> None:
         self.txn_id = None
         self.txn_ts = None
         self.txn_lsn = None
-        msg.cursor.send_feedback(flush_lsn=msg.data_start)
-        print(f"***** {txn} *****")
+        # self.commit_callback(txn.begin_lsn)  # FIXME: uncomment
+        if not self.quiet:
+            logger.info(f"{message.message_id}:{txn.json(indent=2)}")
+            logger.info(f"***** {txn} *****")
 
     def handle_slot_created(self, info: SlotInitInfo) -> None:
-        print(info)
+        logger.info(info)
         logger.info(f"Processing publication {info.publication_name}")
         q1 = "begin transaction isolation level repeatable read"
         q2 = f"set transaction snapshot '{info.snapshot}'"
@@ -71,13 +101,26 @@ class DataStore:
                     logger.info(f"Including table {row[1]}.{row[2]}")
 
     def handle_change_event(self, event: ChangeEvent, message: ReplicationMessage) -> None:
-        print(f"{message.message_id}:{event.json(indent=2)}")
+        if not self.quiet:
+            logger.info(f"{message.message_id}:{event.json(indent=2)}")
+        else:
+            data = {
+                "message_id": message.message_id,
+                "operation": event.op,
+                "key": event.key,
+                "before": event.before,
+                "after": event.after,
+            }
+            logger.info(json.dumps(data, indent=2, default=str))
 
     def handle_relation(self, relation: TableSchema, message: ReplicationMessage) -> None:
-        print(f"{message.message_id}:{relation.json(indent=2)}")
+        if not self.quiet:
+            logger.info(f"{message.message_id}:{relation.json(indent=2)}")
 
 
 class MetadataStore:
+    """MetadataStore is used to keep track of the table schemas and the table models."""
+
     def __init__(self):
         # save map of type oid to readable name
         self.pg_types: Dict[Tuple[str, int], str] = dict()

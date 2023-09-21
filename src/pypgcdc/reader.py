@@ -22,6 +22,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
+import contextlib
 import logging
 import typing
 import uuid
@@ -33,9 +34,16 @@ import psycopg2.extras
 import pydantic
 
 import pypgcdc.decoders as decoders
-from pypgcdc.models import OperationType
-from pypgcdc.models import TableSchema, Transaction, ChangeEvent, SlotInitInfo, ReplicationMessage, ColumnDefinition
-from pypgcdc.stores import MetadataStore, DataStore
+from pypgcdc.models import (
+    ChangeEvent,
+    ColumnDefinition,
+    OperationType,
+    ReplicationMessage,
+    SlotInitInfo,
+    TableSchema,
+    Transaction,
+)
+from pypgcdc.stores import DataStore, MetadataStore
 from pypgcdc.utils import SourceDBHandler
 
 logger = logging.getLogger(__name__)
@@ -78,46 +86,144 @@ class LogicalReplicationReader:
         slot_name: str,
         dsn: str,
         data_store: DataStore,
-        lsn: str = 0,
         metadata_store: MetadataStore = None,
+        lsn: typing.Union[int, str] = 0,
     ) -> None:
         self.dsn = dsn
         self.publication_name = publication_name
         self.slot_name = slot_name
         self.lsn = lsn
-        self.data_store = data_store
-        self.metadata_store = metadata_store
+        self.data_store = data_store or DataStore()
+        # set the callback so datastore can call `commit_callback` to update the lsn in the database
+        self.data_store.commit_callback = self.commit_lsn
+        self.metadata_store = metadata_store or MetadataStore()
         self.source_db_handler = SourceDBHandler(dsn=self.dsn)
         self.database = self.source_db_handler.conn.get_dsn_parameters()["dbname"]
         self.connection = None
         self.cursor = None
         self.transaction_metadata = None
+        self._iterator = None
+        self._max_count = 0
+        self._current_count = 0
 
-    def transform_raw(self, msg: ReplicationMessage) -> typing.Union[ChangeEvent, Transaction, TableSchema]:
+    def __enter__(self) -> psycopg2.extras.ReplicationCursor:
+        self.start_replication()
+        return self.cursor
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.stop_replication()
+
+    def consume_stream(self, max_count=0):
+        if not self.cursor:
+            raise RuntimeError("Cursor not initialized; use `with` statement or call `init_cursor` first")
+        logger.info(f"Starting replication from: {self.database}/{self.publication_name}/{self.slot_name}")
+        if max_count:
+            self._max_count = max_count
+        with contextlib.suppress(StopIteration):
+            self.cursor.consume_stream(self)
+
+    def start_replication(self):
+        self._current_count = 0
+        if self.connection and self.cursor:
+            return
+        replication_options = {
+            "publication_names": self.publication_name,
+            "proto_version": "1",
+        }
+        self.connection = psycopg2.extras.LogicalReplicationConnection(self.dsn)
+        self.cursor = psycopg2.extras.ReplicationCursor(self.connection)
+        try:
+            self.cursor.start_replication(
+                slot_name=self.slot_name,
+                options=replication_options,
+                start_lsn=self.lsn,
+                decode=False,
+            )
+        except psycopg2.errors.UndefinedObject:  # noqa
+            self.cursor.execute("rollback;")
+            self._create_slot()
+            self.cursor.start_replication(
+                slot_name=self.slot_name,
+                options=replication_options,
+                start_lsn=self.lsn,
+                decode=False,
+            )
+
+    def stop_replication(self):
+        if self.cursor:
+            self.cursor.close()
+            self.cursor = None
+        if self.connection:
+            self.connection.close()
+            self.connection = None
+        self._max_count = 0
+
+    def commit_lsn(self, lsn: int):
+        if self.cursor:
+            self.cursor.send_feedback(flush_lsn=lsn)
+
+    def _create_slot(self):
+        self.cursor.create_replication_slot(self.slot_name, output_plugin="pgoutput")
+        res = self.cursor.fetchone()
+        info = SlotInitInfo(
+            dsn=self.dsn,
+            publication_name=self.publication_name,
+            slot_name=res[0],
+            flush_lsn=res[1],
+            snapshot=res[2],
+            plugin=res[3],
+        )
+        self.data_store.handle_slot_created(info)
+
+    def __call__(self, msg: psycopg2.extras.ReplicationMessage):
+        message_id = uuid.uuid4()
+        message = ReplicationMessage(
+            message_id=message_id,
+            data_start=msg.data_start,
+            payload=msg.payload,
+            send_time=msg.send_time,
+            data_size=msg.data_size,
+            wal_end=msg.wal_end,
+        )
+        change_event = self._transform_raw(message)
+
+        if isinstance(change_event, TableSchema):
+            self.data_store.handle_relation(change_event, message)
+        elif change_event.op == "B":
+            self.data_store.handle_begin(change_event, message)
+        elif change_event.op == "C":
+            self.data_store.handle_commit(change_event, message)
+        else:
+            self.data_store.handle_change_event(change_event, message)
+
+        self._current_count += 1
+        if self._max_count and self._current_count == self._max_count:
+            raise StopIteration
+
+    def _transform_raw(self, msg: ReplicationMessage) -> typing.Union[ChangeEvent, Transaction, TableSchema]:
         message_type = OperationType((msg.payload[:1]).decode("utf-8"))
         if message_type == OperationType.RELATION:
-            return self.process_relation(message=msg)
+            return self._process_relation(message=msg)
         elif message_type == OperationType.BEGIN:
-            self.transaction_metadata = self.process_begin(message=msg)
+            self.transaction_metadata = self._process_begin(message=msg)
             return self.transaction_metadata
         # message processors below will throw an error if transaction_metadata doesn't exist
         elif message_type == OperationType.INSERT:
-            event = self.process_insert(message=msg, transaction=self.transaction_metadata)
+            event = self._process_insert(message=msg, transaction=self.transaction_metadata)
             self._add_key(event)
             return event
         elif message_type == OperationType.UPDATE:
-            event = self.process_update(message=msg, transaction=self.transaction_metadata)
+            event = self._process_update(message=msg, transaction=self.transaction_metadata)
             self._add_key(event)
             return event
         elif message_type == OperationType.DELETE:
-            event = self.process_delete(message=msg, transaction=self.transaction_metadata)
+            event = self._process_delete(message=msg, transaction=self.transaction_metadata)
             self._add_key(event)
             return event
         elif message_type == OperationType.TRUNCATE:
-            return self.process_truncate(message=msg, transaction=self.transaction_metadata)
+            return self._process_truncate(message=msg, transaction=self.transaction_metadata)
         elif message_type == OperationType.COMMIT:
-            txn = self.transaction_metadata.copy()
-            txn.op = OperationType.COMMIT
+            txn = self._process_commit(message=msg, transaction=self.transaction_metadata)
             self.transaction_metadata = None  # null out this value after commit
             return txn
 
@@ -134,7 +240,7 @@ class LogicalReplicationReader:
         event.key = key
         return key
 
-    def process_relation(self, message: ReplicationMessage) -> TableSchema:
+    def _process_relation(self, message: ReplicationMessage) -> TableSchema:
         relation_msg: decoders.Relation = decoders.Relation(message.payload)
         relation_id = relation_msg.relation_id
         schema = self.metadata_store.table_schema(self.database, relation_id)
@@ -149,7 +255,9 @@ class LogicalReplicationReader:
                 self.metadata_store.add_column_type(self.database, column.type_id, pg_type)
             # pre-compute schema of the table for attaching to messages
             is_optional = self.source_db_handler.fetch_if_column_is_optional(
-                table_schema=relation_msg.namespace, table_name=relation_msg.relation_name, column_name=column.name
+                table_schema=relation_msg.namespace,
+                table_name=relation_msg.relation_name,
+                column_name=column.name,
             )
             column_definitions.append(
                 ColumnDefinition(
@@ -164,7 +272,11 @@ class LogicalReplicationReader:
         # this should be the type below, but it doesn't work as the kwargs for create_model with mppy
         # schema_mapping_args: typing.Dict[str, typing.Tuple[type, typing.Optional[EllipsisType]]] = {
         schema_mapping_args: typing.Dict[str, typing.Any] = {
-            c.name: (convert_pg_type_to_py_type(c.type_name), None if c.optional else ...) for c in column_definitions
+            c.name: (
+                convert_pg_type_to_py_type(c.type_name),
+                None if c.optional else ...,
+            )
+            for c in column_definitions
         }
         table_model = pydantic.create_model(f"DynamicSchemaModel_{relation_id}", **schema_mapping_args)
         self.metadata_store.add_table_model(self.database, relation_id, table_model)
@@ -189,11 +301,26 @@ class LogicalReplicationReader:
         self.metadata_store.add_table_schema(self.database, relation_id, table_schema)
         return table_schema
 
-    def process_begin(self, message: ReplicationMessage) -> Transaction:
+    def _process_begin(self, message: ReplicationMessage) -> Transaction:
         begin_msg: decoders.Begin = decoders.Begin(message.payload)
-        return Transaction(op="B", tx_id=begin_msg.tx_xid, begin_lsn=begin_msg.lsn, commit_ts=begin_msg.commit_ts)
+        return Transaction(
+            op="B",
+            tx_id=begin_msg.tx_xid,
+            begin_lsn=begin_msg.lsn,
+            commit_ts=begin_msg.commit_ts,
+        )
 
-    def process_insert(self, message: ReplicationMessage, transaction: Transaction) -> ChangeEvent:
+    def _process_commit(self, message: ReplicationMessage, transaction: Transaction) -> Transaction:
+        decoded_msg = decoders.Commit(message.payload)
+        return Transaction(
+            op="C",
+            tx_id=transaction.tx_id,
+            begin_lsn=decoded_msg.lsn,
+            commit_lsn=decoded_msg.lsn_commit,
+            commit_ts=decoded_msg.commit_ts,
+        )
+
+    def _process_insert(self, message: ReplicationMessage, transaction: Transaction) -> ChangeEvent:
         decoded_msg: decoders.Insert = decoders.Insert(message.payload)
         table_schema = self.metadata_store.table_schema(self.database, decoded_msg.relation_id)
         table_model = self.metadata_store.table_model(self.database, decoded_msg.relation_id)
@@ -208,7 +335,7 @@ class LogicalReplicationReader:
             after=table_model(**after),
         )
 
-    def process_update(self, message: ReplicationMessage, transaction: Transaction) -> ChangeEvent:
+    def _process_update(self, message: ReplicationMessage, transaction: Transaction) -> ChangeEvent:
         decoded_msg: decoders.Update = decoders.Update(message.payload)
         table_model = self.metadata_store.table_model(self.database, decoded_msg.relation_id)
         table_schema = self.metadata_store.table_schema(self.database, decoded_msg.relation_id)
@@ -233,7 +360,7 @@ class LogicalReplicationReader:
             after=table_model(**after),
         )
 
-    def process_delete(self, message: ReplicationMessage, transaction: Transaction) -> ChangeEvent:
+    def _process_delete(self, message: ReplicationMessage, transaction: Transaction) -> ChangeEvent:
         decoded_msg: decoders.Delete = decoders.Delete(message.payload)
         table_model = self.metadata_store.table_model(self.database, decoded_msg.relation_id)
         table_schema = self.metadata_store.table_schema(self.database, decoded_msg.relation_id)
@@ -256,7 +383,7 @@ class LogicalReplicationReader:
             after=None,
         )
 
-    def process_truncate(self, message: ReplicationMessage, transaction: Transaction) -> ChangeEvent:
+    def _process_truncate(self, message: ReplicationMessage, transaction: Transaction) -> ChangeEvent:
         decoded_msg: decoders.Truncate = decoders.Truncate(message.payload)
         yield ChangeEvent(
             op=decoded_msg.byte1,
@@ -269,68 +396,3 @@ class LogicalReplicationReader:
             before=None,
             after=None,
         )
-
-    def consume_stream(self):
-        if not self.cursor:
-            raise RuntimeError("Cursor not initialized; use `with` statement or call `init_cursor` first")
-        logger.info(f"Starting replication from: {self.database}/{self.publication_name}/{self.slot_name}")
-        self.cursor.consume_stream(self)
-
-    def __call__(self, msg: psycopg2.extras.ReplicationMessage):
-        try:
-            message_id = uuid.uuid4()
-            message = ReplicationMessage(
-                message_id=message_id,
-                data_start=msg.data_start,
-                payload=msg.payload,
-                send_time=msg.send_time,
-                data_size=msg.data_size,
-                wal_end=msg.wal_end,
-            )
-            change_event = self.transform_raw(message)
-
-            if isinstance(change_event, TableSchema):
-                self.data_store.handle_relation(change_event, message)
-            elif change_event.op == "B":
-                self.data_store.handle_begin(change_event, msg)
-            elif change_event.op == "C":
-                self.data_store.handle_commit(change_event, msg)
-            else:
-                self.data_store.handle_change_event(change_event, message)
-        except Exception as err:
-            raise StopIteration from err
-
-    def __enter__(self) -> psycopg2.extras.ReplicationCursor:
-        replication_options = {
-            "publication_names": self.publication_name,
-            "proto_version": "1",
-        }
-        self.connection = psycopg2.extras.LogicalReplicationConnection(self.dsn)
-        self.cursor = psycopg2.extras.ReplicationCursor(self.connection)
-        try:
-            self.cursor.start_replication(
-                slot_name=self.slot_name, options=replication_options, start_lsn=self.lsn, decode=False
-            )
-        except psycopg2.errors.UndefinedObject:  # noqa
-            self.cursor.execute("commit;")
-            self.cursor.create_replication_slot(self.slot_name, output_plugin="pgoutput")
-            res = self.cursor.fetchone()
-            info = SlotInitInfo(
-                dsn=self.dsn,
-                publication_name=self.publication_name,
-                slot_name=res[0],
-                flush_lsn=res[1],
-                snapshot=res[2],
-                plugin=res[3],
-            )
-            self.data_store.handle_slot_created(info)
-            self.cursor.start_replication(
-                slot_name=self.slot_name, options=replication_options, start_lsn=self.lsn, decode=False
-            )
-        return self.cursor
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        if self.cursor:
-            self.cursor.close()
-        if self.connection:
-            self.connection.close()

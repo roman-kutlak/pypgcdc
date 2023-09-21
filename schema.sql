@@ -93,11 +93,10 @@ ALTER TABLE ONLY public.customer_property
 -- Name: test_pub; Type: PUBLICATION; Schema: -; Owner: postgres
 --
 
-CREATE PUBLICATION test_pub FOR ALL TABLES WITH (publish = 'insert, update, delete, truncate');
+CREATE PUBLICATION test_pub FOR ALL TABLES WITH (publish = 'insert, update, delete');
 
 ALTER PUBLICATION test_pub OWNER TO postgres;
 
 --
 -- PostgreSQL database dump complete
 --
-

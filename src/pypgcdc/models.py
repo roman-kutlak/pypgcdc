@@ -48,6 +48,7 @@ class Transaction(pydantic.BaseModel):
     op: str
     tx_id: int
     begin_lsn: int
+    commit_lsn: typing.Optional[int]
     commit_ts: datetime
 
 

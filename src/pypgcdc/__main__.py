@@ -25,22 +25,20 @@ import contextlib
 import logging
 import os
 
-from pypgcdc import LogicalReplicationReader
-from pypgcdc import DataStore, MetadataStore
+from pypgcdc import DataStore, LogicalReplicationReader, MetadataStore
 
 DSN = os.environ.get("PYPGCDC_DSN", "postgres://postgres:postgrespw@localhost:5432/test")
 SLOT = os.environ.get("PYPGCDC_SLOT", "test_slot")
 PUBLICATION = os.environ.get("PYPGCDC_PUBLICATION", "test_publication")
 LSN = os.environ.get("PYPGCDC_LSN", 0)
-
-
-logger = logging.getLogger("pypgcdc")
+QUIET = os.environ.get("PYPGCDC_VERBOSE", "False").lower() not in ("1", "true", "yes")
 
 
 def main():
     logging.basicConfig(level=logging.DEBUG)
+    logging.getLogger("pypgcdc").info(f"Running logical replication with ")
     meta = MetadataStore()
-    data = DataStore()
+    data = DataStore(quiet=QUIET)
     cdc_reader = LogicalReplicationReader(
         dsn=DSN,
         publication_name=PUBLICATION,
