@@ -1,6 +1,6 @@
 [project]
 name = "python-postgres-cdc"
-version = "0.0.0rc1"
+version = "0.0.0rc2"
 description = "Change Data Capture (CDC) library for Postgres"
 readme = "README.md"
 authors = [{ name = "Roman Kutlak", email = "roman@kutlak.net" }]
@@ -50,7 +50,7 @@ authors = [
 [tool.poetry.dependencies]
 python = ">=3.8"
 psycopg2-binary = "^2.8.0"
-pydantic = "^1.10.0"
+pydantic = "<2"
 
 [tool.poetry.group.test.dependencies]
 pytest = "^6.0.0"
