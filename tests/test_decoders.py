@@ -6,7 +6,10 @@ from pypgcdc import ColumnData, ColumnType, TupleData, decoders
 
 
 def test_relation_message() -> None:
-    message = b"R\x00\x00@\x01public\x00test_table\x00d\x00\x02\x01id\x00\x00\x00\x00\x17\xff\xff\xff\xff\x00created\x00\x00\x00\x04\xa0\xff\xff\xff\xff"
+    message = (
+        b"R\x00\x00@\x01public\x00test_table\x00d\x00\x02\x01"
+        b"id\x00\x00\x00\x00\x17\xff\xff\xff\xff\x00created\x00\x00\x00\x04\xa0\xff\xff\xff\xff"
+    )
     decoded_msg = decoders.Relation(message)
     assert decoded_msg.byte1 == "R"
     assert decoded_msg.relation_id == 16385
@@ -22,9 +25,12 @@ def test_relation_message() -> None:
 
     # test exceptions
     # wrong first byte
-    message = b"B\x00\x00@\x01public\x00test_table\x00d\x00\x02\x01id\x00\x00\x00\x00\x17\xff\xff\xff\xff\x00created\x00\x00\x00\x04\xa0\xff\xff\xff\xff"
+    message = (
+        b"B\x00\x00@\x01public\x00test_table\x00d\x00\x02\x01"
+        b"id\x00\x00\x00\x00\x17\xff\xff\xff\xff\x00created\x00\x00\x00\x04\xa0\xff\xff\xff\xff"
+    )
     with pytest.raises(ValueError):
-        decoded_msg = decoders.Relation(message)
+        decoders.Relation(message)
 
 
 def test_begin_message() -> None:
@@ -41,7 +47,7 @@ def test_begin_message() -> None:
     # wrong first byte
     message = b"R\x00\x00\x00\x00\x01f4\x98\x00\x02ck\xd8i\x8a1\x00\x00\x01\xeb"
     with pytest.raises(ValueError):
-        decoded_msg = decoders.Begin(message)
+        decoders.Begin(message)
 
 
 def test_insert_message() -> None:
@@ -65,7 +71,7 @@ def test_insert_message() -> None:
     # wrong first byte
     message = b"U\x00\x00@\x01N\x00\x02t\x00\x00\x00\x015t\x00\x00\x00\x162012-01-01 12:00:00+00"
     with pytest.raises(ValueError):
-        decoded_msg = decoders.Insert(message)
+        decoders.Insert(message)
 
 
 def test_update_message() -> None:
@@ -78,7 +84,7 @@ def test_update_message() -> None:
     # wrong first byte
     message = b"I\x00\x00@\x01N\x00\x02t\x00\x00\x00\x015t\x00\x00\x00\x162013-01-01 12:00:00+00"
     with pytest.raises(ValueError):
-        decoded_msg = decoders.Update(message)
+        decoders.Update(message)
 
 
 def test_delete_message() -> None:
@@ -91,7 +97,7 @@ def test_delete_message() -> None:
     # wrong first byte
     message = b"I\x00\x00@\x01K\x00\x02t\x00\x00\x00\x014n"
     with pytest.raises(ValueError):
-        decoded_msg = decoders.Delete(message)
+        decoders.Delete(message)
 
 
 def test_commit_message() -> None:
@@ -108,7 +114,7 @@ def test_commit_message() -> None:
     # wrong first byte
     message = b"R\x00\x00\x00\x00\x00\x01f4\x98\x00\x00\x00\x00\x01f4\xc8\x00\x02cl\x83\x8f\xd2\xa1"
     with pytest.raises(ValueError):
-        decoded_msg = decoders.Commit(message)
+        decoders.Commit(message)
 
 
 def test_truncate_message() -> None:
@@ -123,12 +129,13 @@ def test_truncate_message() -> None:
     # wrong first byte
     message = b"D\x00\x00\x00\x01\x00\x00\x00@\x01"
     with pytest.raises(ValueError):
-        decoded_msg = decoders.Truncate(message)
+        decoders.Truncate(message)
 
 
 def test_tuple_data() -> None:
     test_tuple = TupleData(
-        n_columns=1, column_data=[ColumnData(col_data_length=1, col_data="1", col_data_category="t")]
+        n_columns=1,
+        column_data=[ColumnData(col_data_length=1, col_data="1", col_data_category="t")],
     )
     assert test_tuple.n_columns == 1
     assert test_tuple.column_data[0].col_data_category == "t"

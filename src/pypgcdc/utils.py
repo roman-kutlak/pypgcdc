@@ -2,6 +2,7 @@
 MIT License
 
 Copyright (c) [2020] [Daniel Geals]
+Copyright (c) [2023] [Roman Kutlak]
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -38,10 +39,11 @@ class ResourceError(Exception):
 class SourceDBHandler:
     def __init__(self, dsn: str) -> None:
         self.dsn = dsn
+        self.conn = None
         self.connect()
 
     def connect(self) -> None:
-        self.conn: psycopg2.connection = psycopg2.connect(self.dsn)
+        self.conn = psycopg2.connect(self.dsn)
         self.conn.autocommit = True
 
     def fetchone(self, query: str) -> psycopg2.extras.DictRow:

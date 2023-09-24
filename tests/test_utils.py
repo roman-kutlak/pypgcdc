@@ -8,13 +8,7 @@ import pytest
 
 import pypgcdc
 
-HOST = os.environ.get("PGHOST")
-PORT = os.environ.get("PGPORT")
-DATABASE_NAME = os.environ.get("PGDATABASE")
-USER = os.environ.get("PGUSER")
-PASSWORD = os.environ.get("PGPASSWORD")
-
-DSN = f"host={HOST} port={PORT} dbname={DATABASE_NAME} user={USER} password={PASSWORD}"
+DSN = os.environ.get("PYPGCDC_DSN", "postgres://postgres:postgrespw@localhost:5432/unittest")
 
 logging.basicConfig(level=logging.DEBUG, format="%(relativeCreated)6d %(processName)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -22,13 +16,7 @@ logger = logging.getLogger(__name__)
 
 @pytest.fixture(scope="module")
 def cursor() -> typing.Generator[psycopg2.extras.DictCursor, None, None]:
-    connection = psycopg2.connect(
-        host=HOST,
-        database=DATABASE_NAME,
-        port=PORT,
-        user=USER,
-        password=PASSWORD,
-    )
+    connection = psycopg2.connect(DSN)
     connection.autocommit = True
     curs = connection.cursor(cursor_factory=psycopg2.extras.DictCursor)
     yield curs
@@ -39,7 +27,7 @@ def cursor() -> typing.Generator[psycopg2.extras.DictCursor, None, None]:
 @pytest.fixture(scope="module")
 def table(cursor: psycopg2.extras.DictCursor) -> None:
     query = """
-    DROP TABLE IF EXISTS public.utils_test CASCADE;
+    DROP TABLE IF EXISTS public.utils CASCADE;
     CREATE TABLE public.utils (
         c0 integer primary key,
         c1 timestamptz,

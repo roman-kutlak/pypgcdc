@@ -59,7 +59,6 @@ COPY public.customer (id, fname, lname, dt_updated, account_id) FROM stdin;
 1	Arthur  Dent	2023-03-12 11:26:29.718691+00	1
 2	Ford    Prefect	2023-03-12 11:26:40.815079+00	1
 3	Zaphod  Beeblebrox	2023-03-12 16:04:38.08398+00	1
-4	Trillian    	2023-03-12 16:58:18.772653+00	1
 \.
 
 
@@ -94,11 +93,10 @@ ALTER TABLE ONLY public.customer_property
 -- Name: test_pub; Type: PUBLICATION; Schema: -; Owner: postgres
 --
 
-CREATE PUBLICATION test_pub FOR ALL TABLES WITH (publish = 'insert, update, delete, truncate');
+CREATE PUBLICATION test_pub FOR ALL TABLES WITH (publish = 'insert, update, delete');
 
 ALTER PUBLICATION test_pub OWNER TO postgres;
 
 --
 -- PostgreSQL database dump complete
 --
-
