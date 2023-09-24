@@ -1,6 +1,6 @@
 [project]
-name = "pypgcdc"
-version = "0.0.0rc3"
+name = "python-postgres-cdc"
+version = "0.0.0rc1"
 description = "Change Data Capture (CDC) library for Postgres"
 readme = "README.md"
 authors = [{ name = "Roman Kutlak", email = "roman@kutlak.net" }]
@@ -78,5 +78,6 @@ exclude_lines = [
 [tool.coverage.run]
 branch = false
 omit=[
-  "tests/*"
+  "tests/*",
+  "__main__.py",
 ]

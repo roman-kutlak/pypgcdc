@@ -40,6 +40,7 @@ from pypgcdc.decoders import (
 )
 from pypgcdc.models import (
     ChangeEvent,
+    OperationType,
     ReplicationMessage,
     SlotInitInfo,
     TableSchema,
@@ -71,6 +72,7 @@ __all__ = [
     "Transaction",
     "SlotInitInfo",
     "ChangeEvent",
+    "OperationType",
     "ReplicationMessage",
     "TableSchema",
     "DataStore",

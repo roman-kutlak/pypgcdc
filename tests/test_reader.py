@@ -10,8 +10,7 @@ import psycopg2.extras
 import pytest
 
 import pypgcdc
-from pypgcdc import LogicalReplicationReader, MetadataStore
-
+from pypgcdc import LogicalReplicationReader, MetadataStore, ChangeEvent, OperationType, ReplicationMessage
 
 DSN = os.environ.get("PYPGCDC_DSN", "postgres://postgres:postgrespw@localhost:5432/unittest")
 SLOT_NAME = os.environ.get("PYPGCDC_SLOT", "unittest_slot")
@@ -33,9 +32,17 @@ CREATE TABLE public.control (
 """
 TEST_TABLE_COLUMNS = ["id", "json_data", "amount", "updated_at", "text_data"]
 
-BASE_INSERT_STATEMENT = """
+INSERT_STATEMENT = """
 INSERT INTO public.integration (id, json_data, amount, updated_at, text_data)
 VALUES (10, '{"data": 10}', 10.20, '2020-01-01 00:00:00+00', 'dummy_value');
+"""
+
+UPDATE_STATEMENT = """
+UPDATE public.integration SET json_data = '{"data": 20}' WHERE id = 10;
+"""
+
+DELETE_STATEMENT = """
+DELETE FROM public.integration WHERE id = 10;
 """
 
 MESSAGE_MARKER = """
@@ -109,7 +116,7 @@ def test_dummy_test(cursor: psycopg2.extras.DictCursor) -> None:
 
 
 def test_slot_logic(cdc_reader: pypgcdc.LogicalReplicationReader, cursor: psycopg2.extras.DictCursor) -> None:
-    cursor.execute(BASE_INSERT_STATEMENT)
+    cursor.execute(INSERT_STATEMENT)
     with cdc_reader:
         pass
     cursor.execute(MESSAGE_MARKER)
@@ -123,10 +130,35 @@ def test_slot_logic(cdc_reader: pypgcdc.LogicalReplicationReader, cursor: psycop
 def test_event_logic(cdc_reader: pypgcdc.LogicalReplicationReader, cursor: psycopg2.extras.DictCursor) -> None:
     cdc_reader.start_replication()
     cdc_reader.data_store.reset_mock()
-    cursor.execute(BASE_INSERT_STATEMENT)
+    cursor.execute(INSERT_STATEMENT)
     with cdc_reader:
         cdc_reader.consume_stream(max_count=4)
     assert cdc_reader.data_store.handle_slot_created.call_count == 0
     assert cdc_reader.data_store.handle_begin.call_count == 1
     assert cdc_reader.data_store.handle_change_event.call_count == 1
     assert cdc_reader.data_store.handle_commit.call_count == 1
+
+
+def test_event_logic_extended(cdc_reader: pypgcdc.LogicalReplicationReader, cursor: psycopg2.extras.DictCursor) -> None:
+    cdc_reader.start_replication()
+    cdc_reader.data_store.reset_mock()
+
+    def exit_on_event(event: ChangeEvent, message: ReplicationMessage) -> None:
+        if (
+            event.op == OperationType.INSERT.value
+            and event.key.get("table") == "control"
+            and event.after.get("command") == "exit"
+        ):
+            raise StopIteration
+
+    cdc_reader.data_store.handle_change_event.side_effect = exit_on_event
+    cursor.execute(INSERT_STATEMENT)
+    cursor.execute(UPDATE_STATEMENT)
+    cursor.execute(DELETE_STATEMENT)
+    cursor.execute(MESSAGE_MARKER)
+    with cdc_reader:
+        cdc_reader.consume_stream(max_count=16)
+    assert cdc_reader.data_store.handle_slot_created.call_count == 0
+    assert cdc_reader.data_store.handle_begin.call_count == 4
+    assert cdc_reader.data_store.handle_change_event.call_count == 4
+    assert cdc_reader.data_store.handle_commit.call_count == 3
