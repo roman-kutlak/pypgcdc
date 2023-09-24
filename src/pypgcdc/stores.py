@@ -80,7 +80,7 @@ class DataStore:
         self.txn_id = None
         self.txn_ts = None
         self.txn_lsn = None
-        # self.commit_callback(txn.begin_lsn)  # FIXME: uncomment
+        self.commit_callback(txn.begin_lsn)
         if not self.quiet:
             logger.info(f"{message.message_id}:{txn.json(indent=2)}")
             logger.info(f"***** {txn} *****")
